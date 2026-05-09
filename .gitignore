@@ -1,0 +1,39 @@
+# OS / editor
+.DS_Store
+**/.DS_Store
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.venv/
+.teds/
+
+# Secrets & local config
+.env
+.env.local
+.env.*.local
+.activate_project
+
+# Project memory / internal docs (local-only)
+CLAUDE.md
+HITL.md
+prpt/
+
+# LLM prompts, reply configs, templates (local-only)
+prompts/
+content/
+templates/
+configs/
+
+# Runtime / generated data
+data/
+logs/
+
+# Build artifacts
+*.tsbuildinfo

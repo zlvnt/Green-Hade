@@ -40,11 +40,19 @@ def _get_embeddings():
             encode_kwargs={'normalize_embeddings': True}  # Better similarity scores
         )
     except Exception as e:
-        print(f"WARNING: HuggingFace embeddings failed, falling back to Gemini - error: {e}")
+        print(f"WARNING: HuggingFace embeddings failed - error: {e}")
 
-    # Fallback to Gemini embeddings
+    # Fallback to Gemini embeddings (only if Gemini key + model tersedia).
+    # Embedding ≠ chat model — meskipun MODEL_PROVIDER bukan google, Gemini key
+    # masih bisa dipake kalau di-set khusus untuk embedding fallback.
+    if not (settings.GEMINI_API_KEY and settings.MODEL_NAME):
+        raise RuntimeError(
+            "Embedding init failed: HuggingFace error di atas, dan Gemini fallback "
+            "gak available (GEMINI_API_KEY/MODEL_NAME kosong). Set salah satu."
+        )
+
     from langchain_google_genai import GoogleGenerativeAIEmbeddings
-    print(f"INFO: Using Gemini embeddings - model: {settings.MODEL_NAME}")
+    print(f"INFO: Falling back to Gemini embeddings - model: {settings.MODEL_NAME}")
     return GoogleGenerativeAIEmbeddings(
         model=settings.MODEL_NAME, google_api_key=settings.GEMINI_API_KEY
     )

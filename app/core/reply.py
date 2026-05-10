@@ -3,10 +3,11 @@ from typing import Optional
 import json
 
 from functools import lru_cache
+from langchain_core.language_models import BaseChatModel
 from langchain_core.prompts import ChatPromptTemplate
-from langchain_google_genai import ChatGoogleGenerativeAI
 
 from app.config import settings
+from app.core.model import create_llm
 
 
 def _get_reply_config_path() -> str:
@@ -38,21 +39,25 @@ def _format_optimized_template(comment: str, context: str, history: str = "") ->
         
         identity = config.get("identity", {})
         service_guidelines = config.get("service_guidelines", [])
-        
+        brand = config.get("brand", {})
+
         # Format service guidelines array jadi string
         guidelines_text = "Guidelines:\n" + "\n".join([f"- {guideline}" for guideline in service_guidelines])
-        
+
         # Format context and history
         formatted_context = context.strip() if context.strip() else "No additional information available."
         formatted_history = history.strip() if history.strip() else "No previous interaction."
-        
+
         return {
             "comment": comment,
             "context": formatted_context,
             "history": formatted_history,
             "identity_name": identity.get("name", "HADE"),
-            "company": identity.get("company", "Instagram Business Account"),
-            "service_guidelines": guidelines_text
+            "company": identity.get("company", "HADE Greenhouse"),
+            "service_guidelines": guidelines_text,
+            "brand_values": brand.get("values", "fresh hidroponik dari petani lokal"),
+            "brand_tone": brand.get("tone", "professional + helpful, casual-friendly tapi gak alay"),
+            "brand_differentiator": brand.get("differentiator", "langsung dari kebun, kualitas terjaga"),
         }
     except Exception as e:
         print(f"WARNING: Failed to format optimized template: {e}")
@@ -61,8 +66,11 @@ def _format_optimized_template(comment: str, context: str, history: str = "") ->
             "context": context or "No additional information available.",
             "history": history or "No previous interaction.",
             "identity_name": "HADE",
-            "company": "Instagram Business Account",
-            "service_guidelines": "Guidelines:\n- Provide excellent customer service"
+            "company": "HADE Greenhouse",
+            "service_guidelines": "Guidelines:\n- Provide excellent customer service",
+            "brand_values": "fresh hidroponik dari petani lokal",
+            "brand_tone": "professional + helpful, casual-friendly tapi gak alay",
+            "brand_differentiator": "langsung dari kebun, kualitas terjaga",
         }
 
 # Reply template - loaded lazily to avoid import-time file errors
@@ -78,12 +86,8 @@ def _get_reply_prompt_template() -> ChatPromptTemplate:
 
 
 @lru_cache(maxsize=1)
-def _get_llm() -> ChatGoogleGenerativeAI:
-    return ChatGoogleGenerativeAI(
-        model=settings.MODEL_NAME,
-        temperature=_get_reply_temperature(),
-        google_api_key=settings.GEMINI_API_KEY,
-    )
+def _get_llm() -> BaseChatModel:
+    return create_llm(temperature=_get_reply_temperature())
 
 
 def generate_telegram_reply(

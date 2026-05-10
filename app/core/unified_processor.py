@@ -4,58 +4,59 @@ Unified Query Processor for HADE
 Combines routing, context resolution, reformulation, and escalation check
 into a single LLM call for efficiency.
 
-Phase 1 Implementation - RAG Orchestration v2
+Provider-agnostic via app.core.model.create_fast_llm() — JSON output
+dijaga via Pydantic schema (llm.with_structured_output).
 """
 
-import json
-from typing import Dict, Any, Optional
+from typing import Any, Dict, Literal, Optional
 from functools import lru_cache
 from pathlib import Path
 
-from google import genai
-from google.genai import types
+from langchain_core.language_models import BaseChatModel
+from pydantic import BaseModel, Field
+
+
+class UnifiedProcessorOutput(BaseModel):
+    """Schema output yang dipaksa via with_structured_output."""
+
+    routing_decision: Literal["direct", "docs"] = Field(
+        description="direct = langsung reply tanpa cari KB; docs = cari di KB dulu"
+    )
+    resolved_query: str = Field(description="Intent user yang dipahami")
+    reformulated_query: str = Field(
+        description="Query optimal untuk search KB (sama dengan resolved_query kalau direct)"
+    )
+    escalate: bool = Field(description="True jika harus diteruskan ke CS manusia")
+    escalation_reason: str = Field(
+        default="",
+        description="Alasan eskalasi kalau escalate=true. String kosong kalau escalate=false."
+    )
+    reasoning: str = Field(description="Penjelasan singkat keputusan, max 20 kata")
 
 
 class UnifiedProcessor:
     """
-    Unified agent that handles:
+    Unified agent yang handle:
     1. Routing decision (direct/docs)
     2. Query reformulation (optimize for retrieval)
     3. Escalation check (needs human?)
 
-    All in a single LLM call for efficiency.
+    Single LLM call for efficiency.
     """
 
     def __init__(
         self,
-        api_key: str,
-        model_name: str,
-        temperature: float,
-        prompt_template_path: Optional[str] = None
+        llm: BaseChatModel,
+        prompt_template_path: Optional[str] = None,
     ):
         """
-        Initialize unified processor.
-
         Args:
-            api_key: Gemini API key
-            model_name: Gemini model name
-            temperature: LLM temperature (0-1, lower = more consistent)
-            prompt_template_path: Path to prompt template file
+            llm: LangChain BaseChatModel (provider-agnostic, dari create_fast_llm).
+            prompt_template_path: Path ke prompt template file.
         """
-        self.api_key = api_key
-        self.model_name = model_name
-        self.temperature = temperature
+        self.llm = llm
+        self.structured_llm = llm.with_structured_output(UnifiedProcessorOutput)
 
-        # Initialize Gemini client
-        self.client = genai.Client(api_key=self.api_key)
-
-        # Generation config for JSON output
-        self.generation_config = types.GenerateContentConfig(
-            response_mime_type="application/json",
-            temperature=self.temperature,
-        )
-
-        # Load prompt template
         if prompt_template_path:
             self.prompt_template = self._load_prompt_template(prompt_template_path)
         else:
@@ -65,7 +66,6 @@ class UnifiedProcessor:
         """Load prompt template from file."""
         path = Path(template_path)
         if not path.exists():
-            # Try relative to project root
             path = Path(__file__).parent.parent.parent / template_path
 
         if not path.exists():
@@ -100,100 +100,46 @@ STEP 2 - REFORMULATION (jika routing="docs"):
 Optimalkan query untuk pencarian knowledge base.
 
 STEP 3 - ESCALATION CHECK:
-Escalate=true jika user minta CS/manusia, komplain serius, atau di luar kapabilitas bot.
+Escalate=true jika SALAH SATU:
+- B2B inquiry: volume/bulk, supply rutin/kontinuitas, custom varian, nego harga, identify sebagai restoran/hotel/reseller
+- Komplain serius: produk rusak/busuk, pengiriman hilang, tagihan salah
+- User minta CS/manusia/owner langsung
+- Di luar kapabilitas bot
 
-=== OUTPUT FORMAT (JSON ONLY) ===
-{{
-  "routing_decision": "direct|docs",
-  "resolved_query": "intent user yang dipahami",
-  "reformulated_query": "query optimal untuk search",
-  "escalate": true|false,
-  "escalation_reason": "alasan jika escalate",
-  "reasoning": "penjelasan singkat"
-}}
-
-=== CONTOH ===
-
-Query: "iya" | History: "Bot: Mau tahu prosedur return?"
-{{"routing_decision": "docs", "resolved_query": "prosedur return", "reformulated_query": "prosedur pengembalian barang", "escalate": false, "escalation_reason": "", "reasoning": "User konfirmasi tanya return"}}
-
-Query: "halo" | History: ""
-{{"routing_decision": "direct", "resolved_query": "sapaan", "reformulated_query": "sapaan", "escalate": false, "escalation_reason": "", "reasoning": "Greeting sederhana"}}
-
-=== PROSES SEKARANG ==="""
+Output dalam format struktur sesuai schema."""
 
     def process(self, query: str, history: str = "") -> Dict[str, Any]:
         """
-        Process query through unified pipeline.
+        Process query lewat unified pipeline.
 
-        Args:
-            query: User query/message
-            history: Conversation history context
-
-        Returns:
-            Dictionary with:
-            - routing_decision: str
-            - resolved_query: str
-            - needs_reformulation: bool
-            - reformulated_query: str
-            - escalate: bool
-            - escalation_reason: str
-            - reasoning: str
+        Returns dict dengan keys:
+            routing_decision, resolved_query, needs_reformulation,
+            reformulated_query, escalate, escalation_reason, reasoning.
         """
-        # Format prompt
         prompt = self.prompt_template.format(
             query=query,
             history=history or "Tidak ada history percakapan sebelumnya"
         )
 
         try:
-            # Call LLM (single call for all decisions)
-            response = self.client.models.generate_content(
-                model=self.model_name,
-                contents=prompt,
-                config=self.generation_config
+            result_obj: UnifiedProcessorOutput = self.structured_llm.invoke(prompt)
+            result = result_obj.model_dump()
+
+            # Backward-compat field
+            result["needs_reformulation"] = (
+                result["reformulated_query"] != result["resolved_query"]
             )
 
-            # Parse JSON response
-            result = json.loads(response.text)
-
-            # Validate required fields
-            required_fields = [
-                "routing_decision",
-                "resolved_query",
-                "reformulated_query",
-                "escalate",
-                "reasoning"
-            ]
-
-            for field in required_fields:
-                if field not in result:
-                    raise ValueError(f"Missing required field: {field}")
-
-            # Infer needs_reformulation if not provided (for backward compatibility)
-            if "needs_reformulation" not in result:
-                result["needs_reformulation"] = result["reformulated_query"] != result["resolved_query"]
-
-            # Ensure escalation_reason exists
-            if "escalation_reason" not in result:
-                result["escalation_reason"] = ""
-
-
             return result
-
-        except json.JSONDecodeError as e:
-            print(f"ERROR: Failed to parse JSON response: {e}")
-            print(f"Response text: {response.text}")
-            return self._fallback_response(query)
 
         except Exception as e:
             print(f"ERROR: UnifiedProcessor failed: {e}")
             return self._fallback_response(query)
 
     def _fallback_response(self, query: str) -> Dict[str, Any]:
-        """Fallback response when processing fails."""
+        """Fallback kalau LLM gagal — safe default ke RAG."""
         return {
-            "routing_decision": "docs",  # Safe default: try RAG
+            "routing_decision": "docs",
             "resolved_query": query,
             "needs_reformulation": False,
             "reformulated_query": query,
@@ -203,30 +149,20 @@ Query: "halo" | History: ""
         }
 
 
-# Singleton instance
 @lru_cache(maxsize=1)
 def _get_unified_processor() -> UnifiedProcessor:
-    """Get singleton UnifiedProcessor instance."""
+    """Singleton UnifiedProcessor."""
     from app.config import settings
+    from app.core.model import create_fast_llm
 
+    llm = create_fast_llm(temperature=settings.UNIFIED_PROCESSOR_TEMPERATURE)
     return UnifiedProcessor(
-        api_key=settings.GEMINI_API_KEY,
-        model_name=settings.MODEL_NAME,
-        temperature=settings.UNIFIED_PROCESSOR_TEMPERATURE,
-        prompt_template_path=settings.UNIFIED_PROCESSOR_PROMPT_PATH
+        llm=llm,
+        prompt_template_path=settings.UNIFIED_PROCESSOR_PROMPT_PATH,
     )
 
 
 def process_query(query: str, history: str = "") -> Dict[str, Any]:
-    """
-    Convenience function to process query using singleton processor.
-
-    Args:
-        query: User query/message
-        history: Conversation history context
-
-    Returns:
-        Processing result dictionary
-    """
+    """Convenience: process query via singleton processor."""
     processor = _get_unified_processor()
     return processor.process(query, history)

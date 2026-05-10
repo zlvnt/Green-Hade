@@ -123,9 +123,17 @@ async def chat(request: ChatRequest):
 @router.get("/config")
 async def get_config():
     """Return current agent configuration (no secrets)."""
+    provider = settings.MODEL_PROVIDER
+    active_model = {
+        "anthropic": settings.ANTHROPIC_MODEL,
+        "google": settings.MODEL_NAME,
+        "minimax": settings.MINIMAX_MODEL,
+    }.get(provider)
+
     return {
         "agent_mode": settings.AGENT_MODE,
-        "model_name": settings.MODEL_NAME,
+        "model_provider": provider,
+        "model_name": active_model,
         "embedding_model": settings.EMBEDDING_MODEL,
         "use_reranker": settings.USE_RERANKER,
         "reranker_model": settings.RERANKER_MODEL,

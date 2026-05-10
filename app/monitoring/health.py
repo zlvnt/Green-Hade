@@ -55,8 +55,14 @@ def get_readiness_status() -> Dict[str, Any]:
         "chain": True,
     }
 
-    # Check if critical config is present
-    if not settings.GEMINI_API_KEY:
+    # Check API key untuk provider aktif
+    provider = settings.MODEL_PROVIDER
+    provider_key_map = {
+        "anthropic": settings.ANTHROPIC_API_KEY,
+        "google": settings.GEMINI_API_KEY,
+        "minimax": settings.MINIMAX_API_KEY,
+    }
+    if not provider_key_map.get(provider):
         checks["config"] = False
 
     all_ready = all(checks.values())

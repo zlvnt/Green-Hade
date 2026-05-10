@@ -30,9 +30,25 @@ class Settings(BaseSettings):
     TELEGRAM_DB_PATH: str = Field("data/telegram_memory.db", alias="TELEGRAM_DB_PATH")
     DATABASE_URL: Optional[str] = Field(None, alias="DATABASE_URL")  # PostgreSQL connection string (optional, defaults to SQLite)
 
-    # AI Model config
-    GEMINI_API_KEY: str = Field(..., alias="GEMINI_API_KEY")
-    MODEL_NAME: str = Field(..., alias="MODEL_NAME")
+    # AI Model config — provider switch
+    # MODEL_PROVIDER pilih backend LLM. Per-provider key dicek lazy di app/core/model.py
+    # (gak fail at startup kalau key provider lain belum di-set).
+    MODEL_PROVIDER: str = Field("anthropic", alias="MODEL_PROVIDER")
+
+    # Google Gemini (provider=google)
+    GEMINI_API_KEY: Optional[str] = Field(None, alias="GEMINI_API_KEY")
+    MODEL_NAME: Optional[str] = Field(None, alias="MODEL_NAME")  # main Gemini model
+    GEMINI_FAST_MODEL: str = Field("gemini-2.5-flash", alias="GEMINI_FAST_MODEL")
+
+    # Anthropic Claude (provider=anthropic)
+    ANTHROPIC_API_KEY: Optional[str] = Field(None, alias="ANTHROPIC_API_KEY")
+    ANTHROPIC_MODEL: str = Field("claude-sonnet-4-6", alias="ANTHROPIC_MODEL")
+    ANTHROPIC_FAST_MODEL: str = Field("claude-haiku-4-5-20251001", alias="ANTHROPIC_FAST_MODEL")
+
+    # Minimax (provider=minimax — pakai Anthropic SDK + custom base_url)
+    MINIMAX_API_KEY: Optional[str] = Field(None, alias="MINIMAX_API_KEY")
+    MINIMAX_MODEL: str = Field("MiniMax-M2.7", alias="MINIMAX_MODEL")
+    MINIMAX_BASE_URL: str = Field("https://api.minimax.io/anthropic", alias="MINIMAX_BASE_URL")
     
     BOT_USERNAME: str = Field("hade", alias="BOT_USERNAME")
 

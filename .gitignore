@@ -25,11 +25,12 @@ CLAUDE.md
 HITL.md
 prpt/
 
-# LLM prompts, reply configs, templates (local-only)
+# LLM prompts, reply configs, templates, KB content (local-only)
 prompts/
 content/
 templates/
 configs/
+docs/
 
 # Runtime / generated data
 data/

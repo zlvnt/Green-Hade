@@ -7,7 +7,7 @@ from langchain_core.language_models import BaseChatModel
 from langchain_core.prompts import ChatPromptTemplate
 
 from app.config import settings
-from app.core.model import create_llm
+from app.core.model import create_llm, extract_reply
 
 
 def _get_reply_config_path() -> str:
@@ -112,7 +112,10 @@ def generate_telegram_reply(
         print(f"{'='*60}")
         
         ai_msg = _get_llm().invoke(messages)
-        reply = ai_msg.content.strip()
+        reply_text, reasoning = extract_reply(ai_msg)
+        if reasoning:
+            print(f"🧠 REASONING:\n{reasoning}\n")
+        reply = reply_text.strip()
         print(f"INFO: Generated Telegram reply")
         
     except Exception as e:
@@ -178,7 +181,10 @@ def generate_social_reply(
         print(f"{'='*60}")
 
         ai_msg = _get_llm().invoke(messages)
-        reply = ai_msg.content.strip()
+        reply_text, reasoning = extract_reply(ai_msg)
+        if reasoning:
+            print(f"🧠 REASONING:\n{reasoning}\n")
+        reply = reply_text.strip()
         print(f"INFO: Generated social reply (no RAG)")
 
     except Exception as e:

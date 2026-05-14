@@ -31,6 +31,7 @@ content/
 templates/
 configs/
 docs/
+learn/
 
 # Runtime / generated data
 data/
@@ -38,3 +39,4 @@ logs/
 
 # Build artifacts
 *.tsbuildinfo
+

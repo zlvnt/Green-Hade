@@ -4,20 +4,34 @@ Unified Query Processor for HADE
 Combines routing, context resolution, reformulation, and escalation check
 into a single LLM call for efficiency.
 
-Provider-agnostic via app.core.model.create_fast_llm() — JSON output
-dijaga via Pydantic schema (llm.with_structured_output).
+Dispatch by provider:
+- Provider tool-strong (anthropic/google) → with_structured_output (native
+  tool_use), reliability optimal di provider itu.
+- Provider tool-marginal (minimax dll) → fallback ke JSON-mode prompting +
+  manual parse via Pydantic. Lihat learn/tool-use-protocol-emission.md.
+
+Prompt template sama untuk dua path — JSON spec di prompt redundant tapi
+harmless di native mode.
 """
 
+import json
+import re
 from typing import Any, Dict, Literal, Optional
 from functools import lru_cache
 from pathlib import Path
 
 from langchain_core.language_models import BaseChatModel
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ValidationError
+
+from app.core.model import extract_reply
+
+
+PROVIDERS_WITH_NATIVE_STRUCTURED_OUTPUT = {"anthropic", "google"}
 
 
 class UnifiedProcessorOutput(BaseModel):
-    """Schema output yang dipaksa via with_structured_output."""
+    """Schema output. Dipake dua path: with_structured_output (native) +
+    Pydantic validate hasil JSON parse (fallback)."""
 
     routing_decision: Literal["direct", "docs"] = Field(
         description="direct = langsung reply tanpa cari KB; docs = cari di KB dulu"
@@ -48,14 +62,22 @@ class UnifiedProcessor:
         self,
         llm: BaseChatModel,
         prompt_template_path: Optional[str] = None,
+        use_native_structured: bool = False,
     ):
         """
         Args:
             llm: LangChain BaseChatModel (provider-agnostic, dari create_fast_llm).
             prompt_template_path: Path ke prompt template file.
+            use_native_structured: True kalau provider support tool_use reliable
+                (anthropic/google). False = fallback ke prompt+parse (minimax dll).
         """
         self.llm = llm
-        self.structured_llm = llm.with_structured_output(UnifiedProcessorOutput)
+        self.use_native_structured = use_native_structured
+        self.structured_llm = (
+            llm.with_structured_output(UnifiedProcessorOutput)
+            if use_native_structured
+            else None
+        )
 
         if prompt_template_path:
             self.prompt_template = self._load_prompt_template(prompt_template_path)
@@ -106,7 +128,16 @@ Escalate=true jika SALAH SATU:
 - User minta CS/manusia/owner langsung
 - Di luar kapabilitas bot
 
-Output dalam format struktur sesuai schema."""
+=== OUTPUT FORMAT ===
+Bales HANYA dengan JSON valid (tanpa markdown fence, tanpa teks lain), schema:
+{{
+  "routing_decision": "direct" | "docs",
+  "resolved_query": "intent user yang dipahami",
+  "reformulated_query": "query optimal untuk search KB (sama dengan resolved_query kalau direct)",
+  "escalate": true | false,
+  "escalation_reason": "alasan singkat kalau escalate=true, kosong kalau false",
+  "reasoning": "penjelasan singkat keputusan, max 20 kata"
+}}"""
 
     def process(self, query: str, history: str = "") -> Dict[str, Any]:
         """
@@ -122,7 +153,20 @@ Output dalam format struktur sesuai schema."""
         )
 
         try:
-            result_obj: UnifiedProcessorOutput = self.structured_llm.invoke(prompt)
+            if self.use_native_structured:
+                result_obj = self.structured_llm.invoke(prompt)
+                if result_obj is None:
+                    raise ValueError(
+                        "structured_llm returned None — provider didn't emit tool_use"
+                    )
+            else:
+                ai_msg = self.llm.invoke(prompt)
+                text, reasoning = extract_reply(ai_msg)
+                if reasoning:
+                    print(f"🧠 UNIFIED REASONING:\n{reasoning}\n")
+                payload = self._parse_json(text)
+                result_obj = UnifiedProcessorOutput.model_validate(payload)
+
             result = result_obj.model_dump()
 
             # Backward-compat field
@@ -132,9 +176,44 @@ Output dalam format struktur sesuai schema."""
 
             return result
 
-        except Exception as e:
-            print(f"ERROR: UnifiedProcessor failed: {e}")
+        except (json.JSONDecodeError, ValidationError, ValueError) as e:
+            print(f"ERROR: UnifiedProcessor parse failed: {type(e).__name__}: {e}")
             return self._fallback_response(query)
+        except Exception as e:
+            print(f"ERROR: UnifiedProcessor failed: {type(e).__name__}: {e}")
+            return self._fallback_response(query)
+
+    @staticmethod
+    def _parse_json(text: str) -> Dict[str, Any]:
+        """
+        Extract JSON dari LLM output. Toleransi:
+        - Markdown fence ```json ... ```
+        - Teks pre/post-amble di luar JSON object
+        """
+        if not text:
+            raise ValueError("Empty LLM response")
+
+        # Strip markdown fence kalau ada
+        fence_match = re.search(r"```(?:json)?\s*(\{.*?\})\s*```", text, re.DOTALL)
+        if fence_match:
+            return json.loads(fence_match.group(1))
+
+        # Cari JSON object pertama dengan brace matching
+        start = text.find("{")
+        if start == -1:
+            raise ValueError(f"No JSON object found in response: {text[:200]}")
+
+        # Naive brace counter (cukup buat output kita yang flat)
+        depth = 0
+        for i in range(start, len(text)):
+            if text[i] == "{":
+                depth += 1
+            elif text[i] == "}":
+                depth -= 1
+                if depth == 0:
+                    return json.loads(text[start:i + 1])
+
+        raise ValueError(f"Unbalanced JSON braces in response: {text[:200]}")
 
     def _fallback_response(self, query: str) -> Dict[str, Any]:
         """Fallback kalau LLM gagal — safe default ke RAG."""
@@ -156,9 +235,11 @@ def _get_unified_processor() -> UnifiedProcessor:
     from app.core.model import create_fast_llm
 
     llm = create_fast_llm(temperature=settings.UNIFIED_PROCESSOR_TEMPERATURE)
+    use_native = settings.MODEL_PROVIDER in PROVIDERS_WITH_NATIVE_STRUCTURED_OUTPUT
     return UnifiedProcessor(
         llm=llm,
         prompt_template_path=settings.UNIFIED_PROCESSOR_PROMPT_PATH,
+        use_native_structured=use_native,
     )
 
 

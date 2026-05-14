@@ -8,6 +8,7 @@ Simplified architecture:
 - Supports HITL escalation flow
 """
 
+import traceback
 from typing import Dict, Any
 from langchain_core.runnables import Runnable
 
@@ -136,7 +137,8 @@ class CoreChain(Runnable):
             }
 
         except Exception as e:
-            print(f"ERROR: Unified processing error: {e}")
+            print(f"ERROR: Unified processing error: {type(e).__name__}: {e}")
+            traceback.print_exc()
             return {
                 "reply": "Mohon maaf, terjadi kendala teknis. Silakan coba lagi atau hubungi CS kami.",
                 "routing_decision": "error",

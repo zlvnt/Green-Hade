@@ -11,7 +11,7 @@ saat factory dipanggil (bukan saat import) — supaya gak fail kalau key
 provider lain belum di-set.
 """
 
-from typing import Literal, Optional
+from typing import Any, Literal, Optional, Tuple
 
 from langchain_core.language_models import BaseChatModel
 
@@ -19,6 +19,39 @@ from app.config import settings
 
 
 ModelProvider = Literal["anthropic", "google", "minimax"]
+
+
+def extract_reply(ai_msg: Any) -> Tuple[str, str]:
+    """
+    Pisahin user-facing reply + reasoning dari AIMessage.
+
+    Dispatch by shape (bukan by provider):
+    - content string → reply apa adanya, reasoning kosong.
+    - content list-of-blocks → iterate, gabung text-block jadi reply,
+      gabung thinking-block jadi reasoning.
+
+    Format list-block dipakai Minimax M-series + Claude extended-thinking.
+    Provider lain (Gemini, Claude tanpa thinking) tetep return string.
+
+    Returns: (reply_text, reasoning_text). reasoning_text="" kalau gak ada.
+    """
+    content = ai_msg.content
+
+    if isinstance(content, str):
+        return content, ""
+
+    reply_parts = []
+    reasoning_parts = []
+    for block in content or []:
+        if not isinstance(block, dict):
+            continue
+        btype = block.get("type")
+        if btype == "text":
+            reply_parts.append(block.get("text", ""))
+        elif btype == "thinking":
+            reasoning_parts.append(block.get("thinking", ""))
+
+    return "".join(reply_parts), "\n".join(reasoning_parts)
 
 
 def create_llm(

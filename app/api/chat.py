@@ -120,6 +120,15 @@ async def chat(request: ChatRequest):
     )
 
 
+@router.delete("/chat/sessions/{session_id}")
+async def delete_chat_session(session_id: str):
+    """Delete all messages for a web chat session."""
+    full_session_id = f"web_{session_id}"
+    memory = get_telegram_memory()
+    success = memory.delete_session(full_session_id)
+    return {"session_id": session_id, "deleted": success}
+
+
 @router.get("/config")
 async def get_config():
     """Return current agent configuration (no secrets)."""

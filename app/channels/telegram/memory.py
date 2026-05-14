@@ -103,6 +103,25 @@ class TelegramMemory:
             print(f"⚠️ Failed to get conversation history for {session_id}: {e}")
             return ""
     
+    def delete_session(self, session_id: str) -> bool:
+        """
+        Delete all messages for a session.
+
+        Args:
+            session_id: Unique session identifier
+
+        Returns:
+            bool: True if deletion succeeded, False otherwise.
+        """
+        try:
+            history = self._get_session_history(session_id)
+            history.clear()
+            print(f"🗑️ Deleted session: {session_id}")
+            return True
+        except Exception as e:
+            print(f"❌ Error deleting session {session_id}: {e}")
+            return False
+
     def save_interaction(self, session_id: str, user_message: str, bot_reply: str):
         """
         Save user message and bot reply to conversation history.

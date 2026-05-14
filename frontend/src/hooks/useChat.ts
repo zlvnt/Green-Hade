@@ -99,6 +99,33 @@ export function useChat() {
     setSessionId(id);
   }, []);
 
+  const deleteSession = useCallback(
+    async (id: string) => {
+      if (id === "default") return; // safety: default tidak boleh dihapus
+
+      // Backend wipe (best-effort, lanjut walaupun gagal)
+      try {
+        await api.deleteSession(id);
+      } catch (err) {
+        console.warn(`Backend delete failed for ${id}:`, err);
+      }
+
+      // Frontend wipe: messages + sessions list
+      localStorage.removeItem(`${STORAGE_PREFIX}${id}`);
+      setSessions((prev) => {
+        const next = prev.filter((s) => s !== id);
+        saveSessions(next);
+        return next;
+      });
+
+      // Kalau yang dihapus = session aktif, balik ke default
+      if (id === sessionId) {
+        setSessionId("default");
+      }
+    },
+    [sessionId],
+  );
+
   return {
     messages,
     isLoading,
@@ -109,5 +136,6 @@ export function useChat() {
     clearMessages,
     createSession,
     switchSession,
+    deleteSession,
   };
 }

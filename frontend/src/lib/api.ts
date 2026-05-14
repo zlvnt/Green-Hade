@@ -34,6 +34,12 @@ export const api = {
     });
   },
 
+  deleteSession(sessionId: string): Promise<{ session_id: string; deleted: boolean }> {
+    return request(`/api/chat/sessions/${encodeURIComponent(sessionId)}`, {
+      method: "DELETE",
+    });
+  },
+
   getMetrics(): Promise<MetricsResponse> {
     return request<MetricsResponse>("/metrics");
   },

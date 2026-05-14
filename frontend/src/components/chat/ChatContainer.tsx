@@ -20,6 +20,7 @@ export function ChatContainer() {
     clearMessages,
     createSession,
     switchSession,
+    deleteSession,
   } = useChat();
 
   const [selectedMsg, setSelectedMsg] = useState<ChatMessage | null>(null);
@@ -38,6 +39,7 @@ export function ChatContainer() {
         onSelect={switchSession}
         onCreate={createSession}
         onClear={clearMessages}
+        onDelete={deleteSession}
       />
 
       {/* Chat area */}
